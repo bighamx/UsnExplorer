@@ -1,18 +1,20 @@
-# USN Journal Explorer
+# USN 日志浏览器
 
-A viewer and search tool for the NTFS USN (Update Sequence Number) change journal — it answers *"what touched which files on this volume, and when?"*
+读取并检索 NTFS USN（Update Sequence Number，更新序列号）变更日志的工具，用来回答一个问题：**这块盘上，谁在什么时候动过哪些文件？**
 
-![USN Journal Explorer](docs/screenshot.png)
+[English](README.en.md) · 中文
 
-Windows 10/11 · .NET 8 · WPF · requires Administrator
+![USN 日志浏览器](docs/screenshot.png)
+
+Windows 10/11 · .NET 8 · WPF · 需要管理员权限
 
 ---
 
-## What it reads
+## 它读的是什么
 
-NTFS keeps a per-volume change journal at `C:\$Extend\$UsnJrnl:$J`, recording every create, delete, rename, write and attribute change. This tool reads it and presents it as a searchable table.
+NTFS 会为每个卷维护一份变更流水账，路径是 `C:\$Extend\$UsnJrnl:$J`，文件的新建、删除、改名、写入、改属性等操作都会记进去。本工具把它读出来，以表格呈现，支持检索和筛选。
 
-**That file cannot be opened through the normal file API.** The filesystem layer blocks it — an elevated process with `SeBackupPrivilege` *and* `SeRestorePrivilege` still gets `ERROR_ACCESS_DENIED`. Every path form fails the same way:
+**这个文件用普通文件 API 打不开。** 拦截发生在文件系统层——以管理员身份运行、并且同时启用了 `SeBackupPrivilege` 和 `SeRestorePrivilege`，依然返回 `ERROR_ACCESS_DENIED`。各种路径写法无一例外：
 
 ```
 C:\$Extend\$UsnJrnl:$J
@@ -21,112 +23,112 @@ C:\$Extend\$UsnJrnl:$J
 \\?\Volume{guid}\$Extend\$UsnJrnl:$J
 ```
 
-`icacls` cannot even parse that path, while `GetFileAttributesEx` succeeds and reports the sparse logical length — a good sign the block is at the filesystem layer, not the DACL.
+旁证：`icacls` 连这个路径都解析不了，而 `GetFileAttributesEx` 却能成功返回这个稀疏文件的逻辑长度。说明拦的不是 DACL。
 
-The only way in is a volume handle plus `FSCTL`:
+唯一可行的读法是打开卷句柄再发 FSCTL：
 
 ```
 CreateFileW("\\.\C:", GENERIC_READ, ...)
-FSCTL_QUERY_USN_JOURNAL  0x000900F4   read journal config
-FSCTL_READ_USN_JOURNAL   0x000900BB   stream the change records
-FSCTL_ENUM_USN_DATA      0x000900B3   enumerate every MFT entry
+FSCTL_QUERY_USN_JOURNAL  0x000900F4   读日志配置
+FSCTL_READ_USN_JOURNAL   0x000900BB   顺序读变更记录
+FSCTL_ENUM_USN_DATA      0x000900B3   枚举全盘 MFT 条目
 ```
 
-That is what this tool does. It also **reconstructs full paths**: a USN record carries only a file reference number, a parent reference number and the name *as it was at change time* — no path. Paths are recovered by enumerating the MFT into a `FileId → (ParentId, Name)` map and walking parents up to the root.
+本工具走的就是这条路。它还负责**还原完整路径**：一条 USN 记录里只有文件引用号、父目录引用号，以及*变更当时*的文件名——没有路径。路径靠枚举 MFT 建一张 `FileId → (ParentId, Name)` 的表，再逐级向上回溯到根目录得到。
 
-## Running it
+## 运行
 
 ```
 publish\UsnExplorer.exe
 ```
 
-It requests Administrator via UAC — required for the volume handle. On launch it discovers NTFS volumes and scans them.
+启动时会通过 UAC 请求管理员权限——打开卷句柄必须要。启动后自动发现 NTFS 分区并扫描。
 
-Build from source (needs the .NET 8 SDK):
+从源码构建（需要 .NET 8 SDK）：
 
 ```
 build.cmd
 ```
 
-Output is `publish\UsnExplorer.exe` — a single 270 KB file that uses the installed .NET 8 desktop runtime. The script also runs the engine self-test as its last step.
+产物是 `publish\UsnExplorer.exe`，单文件 270KB，依赖已安装的 .NET 8 桌面运行时。脚本最后一步会自动跑引擎自检。
 
-## Features
+## 功能
 
-- **Volume scan** — auto-discovers NTFS volumes and reads each journal
-- **Full path reconstruction** — via MFT enumeration, with cycle protection and visible `<deleted>` placeholders when an ancestor directory is already gone
-- **Filtering**
-  - Filename keyword and path keyword as two independent channels (case-insensitive, live as you type)
-  - Date + time range to the second, with quick presets; pre-filled with the real data range after a scan
-  - Operation type: create / delete / rename / write / attributes / security / stream / hard link / transacted / close
-  - Volume, and an "exclude directories" toggle
-- **Sorting** — click any column header; sorts off the UI thread and keeps the table live while it runs
-- **Detail panel** — full path, local + UTC timestamps, MFT record numbers, raw reason bitmap
-- **CSV export** of the current filtered view (RFC 4180 escaping)
-- **Shortcuts** — `F5` scan · `Ctrl+F` filename · `Ctrl+Shift+F` path · `Ctrl+E` export · `Esc` cancel · double-click a row to copy its path
+- **分区扫描** — 自动发现所有 NTFS 卷，逐个读取日志
+- **路径还原** — 基于 MFT 枚举，带环保护；祖先目录已删除时显示 `<已删除>` 占位而不是抛异常
+- **筛选**
+  - 文件名关键词、路径关键词，两条独立通道（不区分大小写，输入即筛选）
+  - 日期 + 精确到秒的时间范围，带常用区间快捷选项；扫描完自动填入实际数据的时间上下界
+  - 操作类型：创建 / 删除 / 重命名 / 写入 / 属性 / 权限 / 数据流 / 硬链接 / 事务 / 关闭句柄
+  - 分区，以及「排除目录」开关
+- **排序** — 点击任意列标题；排序在后台线程执行，过程中表格保持可用
+- **详情面板** — 完整路径、本地与 UTC 时间、MFT 记录号、原始 reason 位图
+- **CSV 导出** 当前筛选结果（按 RFC 4180 转义）
+- **快捷键** — `F5` 扫描 · `Ctrl+F` 文件名 · `Ctrl+Shift+F` 路径 · `Ctrl+E` 导出 · `Esc` 取消 · 双击行复制路径
 
-## Performance
+## 性能
 
-Measured on an NVMe-backed volume, 2.64M records and 1.38M MFT entries:
-
-```
-journal read    2,644,894 records  /  886 ms   (~3M records/sec)
-MFT enumeration 1,377,396 entries  /  2.3 s
-path resolution 100%              (2000-record sample)
-filter (full set)                  < 400 ms
-sort by time                        ~200 ms
-```
-
-Records are held in memory (~450 MB per 2.6M). There is no paging or on-disk index — at this scale full memory residency buys zero-latency filtering.
-
-Two things make the difference at million-row scale:
-
-- Records are a `List<T>` of **structs**, and row view-models are materialised lazily by the `DataGrid`'s `IList` indexer, so 3M rows never becomes 3M heap objects.
-- Sorting is intercepted and done on the **int index array** only. The built-in `DataGrid` sort path goes through `ListCollectionView`, which enumerates every item — with a lazily-materialising indexer that means millions of objects plus reflection, and it hangs the UI. Sorting off-thread on indices keeps the UI responsive (measured: window never reports hung, 276 ms to re-sort 3M rows by filename).
-
-## Architecture
+本机实测（NVMe 卷，264 万条记录 / 138 万条 MFT 条目）：
 
 ```
-Interop/NativeMethods.cs      P/Invoke: CreateFileW, DeviceIoControl, privilege
-                              enablement, and the packed struct definitions
-Core/UsnReader.cs             FSCTL wrappers: QUERY / READ_USN_JOURNAL / ENUM_USN_DATA
-Core/UsnEntry.cs              compact struct record representation
-Core/PathResolver.cs          MFT-map path walk, cached, cycle-guarded
-Core/UsnFilter.cs             filter model + operation-type grouping
-Core/UsnStore.cs              record storage, filtering, index sorting (double-buffered)
-ViewModels/UsnRow.cs          on-demand IList row materialisation
-ViewModels/MainViewModel.cs   scan orchestration, state, export
-MainWindow.xaml               UI
-Themes/Dark.xaml              dark theme (full control templates)
-SelfTest.cs                   headless engine verification
+读日志      2,644,894 条  /  886 ms   (~300 万条/秒)
+MFT 枚举    1,377,396 项  /  2.3 s
+路径解析    100%         (抽样 2000 条)
+筛选        全量 < 400 ms
+按时间排序   ~200 ms
 ```
 
-## Headless self-test
+记录全量常驻内存（260 万条约 450MB）。没有分页、没有落盘索引——这个量级下全内存换来的是筛选零延迟。
 
-Interop bugs show up as **"silently returned 0 records"**, which is indistinguishable from an empty journal when you are looking at a UI. The self-test prints journal config, record count, elapsed time, time span, reason-bit distribution, MFT entry count and path-resolution hit rate:
+百万行级别能跑得动，靠两件事：
+
+- 记录用**结构体**的 `List<T>` 保存，行对象由 `DataGrid` 的 `IList` 索引器按需创建。所以 300 万行不会变成 300 万个堆对象。
+- 排序被拦下来，只对 **int 索引数组**排序。DataGrid 自带的排序要经过 `ListCollectionView`，它会枚举全部条目——对上按需创建行的索引器，就是几百万次物化加反射，UI 直接卡死。改成后台排索引后，实测窗口全程不阻塞，300 万行按文件名重排 276ms。
+
+## 代码结构
 
 ```
-USN_SELFTEST_OUT=%TEMP%\out.txt UsnExplorer.exe --selftest [drive]
+Interop/NativeMethods.cs      P/Invoke: CreateFileW、DeviceIoControl、特权启用
+                              以及各结构体定义（紧凑排列）
+Core/UsnReader.cs             FSCTL 封装: QUERY / READ_USN_JOURNAL / ENUM_USN_DATA
+Core/UsnEntry.cs              紧凑的记录结构体表示
+Core/PathResolver.cs          MFT 映射表的路径回溯（带缓存和环保护）
+Core/UsnFilter.cs             筛选模型 + 操作类型归类
+Core/UsnStore.cs              记录存储、筛选、索引排序（双缓冲）
+ViewModels/UsnRow.cs          按需物化的 IList 行
+ViewModels/MainViewModel.cs   扫描编排、状态、导出
+MainWindow.xaml               界面
+Themes/Dark.xaml              暗色主题（完整控件模板）
+SelfTest.cs                   无头引擎自检
 ```
 
-It also verifies the engine against independently recomputed expectations: 12 filter cases and 9 sort cases. That is what caught a real bug where descending folder sorts were returning 883 of 2999 rows out of order — the sort was permuting its own cached key array in place.
+## 无头自检
 
-`build.cmd` runs it automatically.
+互操作层出错的表现是**「静默返回 0 条」**，而对着界面看，这和一个空日志、或者扫错了卷完全无法区分。自检模式会打印日志配置、记录数、耗时、时间跨度、reason 位分布、MFT 条目数和路径解析成功率：
 
-## Known limits
+```
+USN_SELFTEST_OUT=%TEMP%\out.txt UsnExplorer.exe --selftest [盘符]
+```
 
-- NTFS only. exFAT and FAT32 have no USN journal.
-- The journal is a **ring buffer**: once it reaches `MaxSize` (commonly 256 MB) the oldest records are overwritten, so only recent history exists. Clearing it (`fsutil usn deletejournal /N X:`) discards all history irrecoverably and forces a full rescan for consumers like Everything — not a housekeeping task.
-- The file's reported logical length stays huge (~2.5 GB) while actual allocation stays at the cap (~262 MB). It is a sparse file that only grows logically; the real disk cost is `MaxSize` + one `AllocationDelta`.
-- Path reconstruction depends on the MFT's *current* state. If an ancestor directory was deleted, that path cannot be restored and is shown as `<deleted>`.
-- Filtered output above 20M rows is capped, and the UI states when the cap is hit — results are never truncated silently.
-- Read-only. It never modifies or clears the journal.
+它还会拿独立重算的期望值校验引擎：12 项筛选、9 项排序。这确实抓到过真 bug——降序排「所在文件夹」时有 2999 条中 883 条错序，原因是排序把自己的缓存键数组原地打乱了。
 
-## Implementation notes
+`build.cmd` 会自动跑一遍。
 
-The details that cost the most time to get right, in case you are writing this yourself:
+## 已知边界
 
-- `READ_USN_JOURNAL_DATA_V0` is exactly **40 bytes** (`<QIIQQQ>`), not 48 — two `DWORD`s sit between `DWORDLONG`s. Wrong size returns `ERROR_INVALID_PARAMETER` with zero output bytes.
-- The `USN_RECORD_V2` header is exactly **60 bytes** (`<IHHQQQQIIIIHH>`). Major/minor version are `WORD`, not `DWORD`; getting this wrong silently misaligns every field after it.
-- `TimeStamp` is a **FILETIME** (100 ns since 1601), *not* `DateTime.Ticks` (100 ns since 0001). Feeding it to `new DateTime(ticks)` shifts everything by exactly 1600 years and still produces a plausible-looking date.
-- `TOKEN_PRIVILEGES` is **16 bytes, not 24**: `LUID` is 8 bytes but 4-byte aligned. Declaring it as `long` computes 24 and `AdjustTokenPrivileges` fails silently with error 1300. It also returns `true` when the privilege is absent, so check `GetLastWin32Error() != 1300`.
-- `Array.Sort(keys, indices)` sorts `keys` **in place** — never pass a cached array you intend to reuse.
+- 仅支持 NTFS。exFAT 和 FAT32 没有 USN 日志。
+- 日志是**环形缓冲**：达到 `MaxSize`（通常 256MB）后，最旧的记录被覆盖，所以只有最近一段历史。清空日志（`fsutil usn deletejournal /N X:`）会不可恢复地丢掉全部历史，并让 Everything 这类消费者被迫全盘重扫——这不是一个「清理」操作。
+- 文件报告的逻辑长度一直很大（约 2.5GB），实际分配停在 256MB 上限附近（约 262MB）。它是稀疏文件，逻辑长度只增不减；真实磁盘成本是 `MaxSize` 加一个 `AllocationDelta`。
+- 路径还原依赖 MFT 的**当前**状态。祖先目录已删除的路径无法还原，会显示为 `<已删除>`。
+- 筛选结果超过 2000 万行会截断，界面会明确提示已达上限——绝不静默丢弃。
+- 只读。不会修改或清空日志。
+
+## 实现要点
+
+如果你也要自己写一遍，以下几个细节最费时间：
+
+- `READ_USN_JOURNAL_DATA_V0` 恰好 **40 字节**（`<QIIQQQ>`），不是 48——两个 `DWORD` 夹在 `DWORDLONG` 之间。尺寸传错会返回 `ERROR_INVALID_PARAMETER`，输出字节为 0。
+- `USN_RECORD_V2` 头恰好 **60 字节**（`<IHHQQQQIIIIHH>`）。major/minor 版本号各是 `WORD` 不是 `DWORD`，写错会让后面所有字段静默错位。
+- `TimeStamp` 是 **FILETIME**（自 1601-01-01 起的 100ns），**不是** `DateTime.Ticks`（自 0001-01-01 起）。直接用 `new DateTime(ticks)` 会让每个时间戳整整差 1600 年，而且结果看起来仍然像个正常日期。
+- `TOKEN_PRIVILEGES` 是 **16 字节不是 24**：`LUID` 虽 8 字节但按 4 字节对齐。声明成 `long` 会算成 24，`AdjustTokenPrivileges` 静默失败返回 1300。而且它在特权实际不存在时也返回 `true`，所以必须额外检查 `GetLastWin32Error() != 1300`。
+- `Array.Sort(keys, indices)` 会**原地**排序 `keys`——不要把你打算复用的缓存数组传进去。

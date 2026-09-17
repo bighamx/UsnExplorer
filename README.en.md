@@ -88,6 +88,12 @@ Records are held in memory — about 450 MB for 2.6M. At this scale there is no 
 - Filtered output above 20M rows is capped, and the UI says so — nothing is dropped silently.
 - Read-only. It never modifies or clears the journal.
 
+## License
+
+[Selective Freedom License (SFL) v1.0](LICENSE) — [中文版](LICENSE-CN.md)
+
+MIT-style grant with an exclusion clause: no license is granted to Huawei Technologies Co., Ltd. or its affiliates, subsidiaries, employees, representatives or contractors. See [LICENSE](LICENSE) for the full terms.
+
 ## Gotchas
 
 The places this goes wrong quietly, if you are writing one yourself:

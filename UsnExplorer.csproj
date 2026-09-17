@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>UsnExplorer</AssemblyName>
+    <RootNamespace>UsnExplorer</RootNamespace>
+    <LangVersion>latest</LangVersion>
+
+    <!-- 管理员清单: 读 USN 必须提权 -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- 单文件发布时的属性 -->
+    <RuntimeIdentifier Condition="'$(PublishSingleFile)' == 'true'">win-x64</RuntimeIdentifier>
+    <SelfContained Condition="'$(SelfContained)' == ''">false</SelfContained>
+
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>en;zh-Hans</SatelliteResourceLanguages>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,686 @@
+﻿<Window x:Class="UsnExplorer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:UsnExplorer.ViewModels"
+        Title="USN 日志浏览器  ·  USN Journal Explorer"
+        Height="820" Width="1520" MinHeight="560" MinWidth="1080"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Bg0}"
+        Foreground="{StaticResource Fg}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True"
+        FontFamily="Microsoft YaHei UI, Segoe UI">
+
+    <Window.Resources>
+        <!-- 显式指定 DataType 让 IntelliSense 和绑定检查生效 -->
+        <DataTemplate x:Key="OperationCellTemplate">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- 左侧色条: 一眼区分操作类型 -->
+                <Border Width="3" Height="13" CornerRadius="2"
+                        Background="{Binding OperationBrush}" Margin="0,0,8,0"/>
+                <TextBlock Text="{Binding ReasonText}" VerticalAlignment="Center"
+                           Foreground="{StaticResource Fg}" FontSize="12"
+                           TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="NameCellTemplate">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
+                           Foreground="{StaticResource Fg}" FontSize="12"
+                           TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}"/>
+                <!-- 目录标记用极轻的角标, 不抢视觉 -->
+                <Border Style="{StaticResource Pill}" Background="#1E2530"
+                        Margin="7,0,0,0"
+                        Visibility="{Binding IsDirectory, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="目录" FontSize="9.5" Foreground="{StaticResource FgMuted}"/>
+                </Border>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="PathCellTemplate">
+            <TextBlock Text="{Binding Folder}" VerticalAlignment="Center"
+                       Foreground="{StaticResource FgDim}" FontSize="11.5"
+                       TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}"/>
+        </DataTemplate>
+
+        <DataTemplate x:Key="TimeCellTemplate">
+            <TextBlock Text="{Binding TimeText}" VerticalAlignment="Center"
+                       Foreground="{StaticResource Fg}" FontSize="11.5"
+                       FontFamily="Cascadia Mono, Consolas, monospace"/>
+        </DataTemplate>
+
+        <DataTemplate x:Key="VolumeCellTemplate">
+            <Border Style="{StaticResource Pill}" Background="#1B2431" HorizontalAlignment="Left">
+                <TextBlock Text="{Binding Volume}" FontSize="11" FontWeight="SemiBold"
+                           Foreground="#8FB8E8" FontFamily="Cascadia Mono, Consolas"/>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="MonoCellTemplate">
+            <TextBlock Text="{Binding Text}" VerticalAlignment="Center"
+                       Foreground="{StaticResource FgMuted}" FontSize="11"
+                       FontFamily="Cascadia Mono, Consolas, monospace"/>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Window.InputBindings>
+        <KeyBinding Key="F5" Command="{Binding ScanCommand}"/>
+        <KeyBinding Key="F" Modifiers="Ctrl" Command="{Binding FocusSearchCommand}"/>
+        <KeyBinding Key="E" Modifiers="Ctrl" Command="{Binding ExportCommand}"/>
+        <KeyBinding Key="Escape" Command="{Binding CancelCommand}"/>
+    </Window.InputBindings>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>      <!-- 标题栏 -->
+            <RowDefinition Height="Auto"/>      <!-- 工具栏 -->
+            <RowDefinition Height="*"/>         <!-- 主体 -->
+            <RowDefinition Height="Auto"/>      <!-- 状态栏 -->
+        </Grid.RowDefinitions>
+
+        <!-- ==================== 标题栏 ==================== -->
+        <Border Grid.Row="0" Background="{StaticResource Bg1}"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+            <Grid Margin="16,11">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <!-- 标志: 一个抽象的"流水账"图形 -->
+                    <Border Width="24" Height="24" CornerRadius="6"
+                            Background="{StaticResource AccentDim}" Margin="0,0,10,0">
+                        <TextBlock Text="U" FontSize="13" FontWeight="Bold"
+                                   Foreground="{StaticResource Accent}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock Text="USN 日志浏览器" Style="{StaticResource Title}"
+                               VerticalAlignment="Center"/>
+                    <Border Style="{StaticResource Pill}" Background="{StaticResource Bg3}"
+                            Margin="10,0,0,0">
+                        <TextBlock Text="NTFS 变更审计" FontSize="10" Foreground="{StaticResource FgMuted}"/>
+                    </Border>
+                </StackPanel>
+
+                <TextBlock Grid.Column="1" Text="{Binding TimeRangeText}"
+                           Foreground="{StaticResource FgMuted}" FontSize="11"
+                           VerticalAlignment="Center" Margin="20,0"
+                           TextTrimming="CharacterEllipsis"/>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <TextBlock x:Name="PrivilegeBadge" VerticalAlignment="Center"
+                               FontSize="11" Margin="0,0,12,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ==================== 工具栏 ==================== -->
+        <Border Grid.Row="1" Background="{StaticResource Bg1}"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+            <StackPanel Margin="16,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 搜索框: 文件名 / 路径 两条独立的关键词通道 -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Width="440">
+                            <Grid>
+                                <TextBox x:Name="NameSearchBox" Style="{StaticResource SearchBox}"
+                                         Text="{Binding FileNameSearch, UpdateSourceTrigger=PropertyChanged, Delay=150}"
+                                         Padding="32,7,9,7"
+                                         ToolTip="按文件名筛选, 不区分大小写。例: .jpg  /  report"/>
+                                <TextBlock Text="⌕" FontSize="15" Foreground="{StaticResource FgMuted}"
+                                           VerticalAlignment="Center" Margin="11,0,0,0"
+                                           IsHitTestVisible="False"/>
+                                <TextBlock Text="文件名" IsHitTestVisible="False"
+                                           Foreground="{StaticResource FgMuted}" FontSize="13"
+                                           VerticalAlignment="Center" Margin="32,0,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Text, ElementName=NameSearchBox}" Value="">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </Border>
+
+                        <Border Width="440" Margin="8,0,0,0">
+                            <Grid>
+                                <TextBox x:Name="PathSearchBox" Style="{StaticResource SearchBox}"
+                                         Text="{Binding PathSearch, UpdateSourceTrigger=PropertyChanged, Delay=150}"
+                                         Padding="32,7,9,7"
+                                         ToolTip="按所在文件夹/完整路径筛选, 不区分大小写。例: \\Users\\  /  Downloads"/>
+                                <TextBlock Text="⌕" FontSize="15" Foreground="{StaticResource FgMuted}"
+                                           VerticalAlignment="Center" Margin="11,0,0,0"
+                                           IsHitTestVisible="False"/>
+                                <TextBlock Text="路径" IsHitTestVisible="False"
+                                           Foreground="{StaticResource FgMuted}" FontSize="13"
+                                           VerticalAlignment="Center" Margin="32,0,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Text, ElementName=PathSearchBox}" Value="">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- 右侧动作按钮 -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Content="扫描" Style="{StaticResource PrimaryButton}"
+                                Command="{Binding ScanCommand}" Margin="0,0,8,0"
+                                MinWidth="86"
+                                ToolTip="重新读取所有已勾选分区的 USN 日志 (F5)"/>
+
+                        <Button Content="取消" Style="{StaticResource FlatButton}"
+                                Command="{Binding CancelCommand}"
+                                IsEnabled="{Binding IsScanning}" Margin="0,0,8,0"
+                                ToolTip="中止扫描 (Esc)"/>
+
+                        <Button Content="导出 CSV" Style="{StaticResource FlatButton}"
+                                Command="{Binding ExportCommand}" Margin="0,0,8,0"
+                                IsEnabled="{Binding HasData}"
+                                ToolTip="导出当前筛选结果 (Ctrl+E)"/>
+
+                        <Button Content="清空筛选" Style="{StaticResource FlatButton}"
+                                Command="{Binding ClearFilterCommand}"
+                                IsEnabled="{Binding HasData}"
+                                ToolTip="重置所有筛选条件"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- 第二行: 筛选条件 -->
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 左: 时间筛选。用一整个 Border 把「日期选择器 + 时刻输入」包起来,
+                         强调它们是同一个 DateTime 的两部分, 而不是两个独立的筛选条件。 -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <TextBlock Text="时间" Style="{StaticResource Label}"/>
+
+                        <ComboBox Style="{StaticResource FlatCombo}" Width="118"
+                                  ItemsSource="{Binding QuickRanges}"
+                                  SelectedIndex="{Binding QuickRangeIndex}"
+                                  ItemContainerStyle="{StaticResource ComboItem}"
+                                  Margin="0,0,10,0"
+                                  ToolTip="常用时间范围的快捷方式"/>
+
+                        <TextBlock Text="从" Style="{StaticResource Label}"/>
+                        <!-- 日期 + 时刻 = 一个边界 -->
+                        <Border Background="{StaticResource Bg2}"
+                                BorderBrush="{StaticResource Border}" BorderThickness="1"
+                                CornerRadius="4" Margin="0,0,8,0">
+                            <StackPanel Orientation="Horizontal">
+                                <DatePicker Style="{StaticResource FlatDatePickerBare}" Width="126"
+                                            SelectedDate="{Binding DateFromOnly}"
+                                            ToolTip="起始日期"/>
+                                <Border Width="1" Background="{StaticResource Border}"/>
+                                <TextBox x:Name="FromTimeBox" Style="{StaticResource TimeBoxBare}"
+                                         Width="70" Text="00:00:00"
+                                         ToolTip="起始时刻 (HH:mm:ss), 留空表示当天 00:00:00"
+                                         TextChanged="FromTimeBox_TextChanged"/>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="到" Style="{StaticResource Label}"/>
+                        <Border Background="{StaticResource Bg2}"
+                                BorderBrush="{StaticResource Border}" BorderThickness="1"
+                                CornerRadius="4">
+                            <StackPanel Orientation="Horizontal">
+                                <DatePicker Style="{StaticResource FlatDatePickerBare}" Width="126"
+                                            SelectedDate="{Binding DateToOnly}"
+                                            ToolTip="结束日期"/>
+                                <Border Width="1" Background="{StaticResource Border}"/>
+                                <TextBox x:Name="ToTimeBox" Style="{StaticResource TimeBoxBare}"
+                                         Width="70" Text="23:59:59"
+                                         ToolTip="结束时刻 (HH:mm:ss), 留空表示当天 23:59:59"
+                                         TextChanged="ToTimeBox_TextChanged"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- 右: 开关与动作 -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                HorizontalAlignment="Right">
+                        <CheckBox Style="{StaticResource Check}" Content="排除目录"
+                                  IsChecked="{Binding ExcludeDirectories}" Margin="0,0,16,0"
+                                  ToolTip="只显示文件的变更, 过滤掉目录本身的记录"/>
+                        <CheckBox Style="{StaticResource Check}" Content="输入即刻筛选"
+                                  IsChecked="{Binding AutoApply}"
+                                  ToolTip="关闭后需手动点「应用筛选」, 适合超大结果集"/>
+                        <Button Content="应用筛选" Style="{StaticResource FlatButton}"
+                                Command="{Binding ApplyFilterCommand}" Margin="14,0,0,0"
+                                IsEnabled="{Binding HasData}"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- ==================== 主体: 左筛选栏 + 右表格 ==================== -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="252" MinWidth="200"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="340" MinWidth="0"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ========== 左侧: 分区 + 操作类型筛选 ========== -->
+            <Border Grid.Column="0" Background="{StaticResource Bg1}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,12,0,12">
+                    <StackPanel>
+
+                        <!-- 分区 -->
+                        <TextBlock Text="分区" Style="{StaticResource SectionLabel}" Margin="14,0,14,6"/>
+                        <ItemsControl ItemsSource="{Binding Volumes}" Margin="8,0,8,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:VolumeFilterItem}">
+                                    <Border Padding="6,6" CornerRadius="5" Margin="0,1">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="Transparent"/>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <CheckBox Grid.Column="0" Style="{StaticResource Check}"
+                                                      IsChecked="{Binding IsSelected}"
+                                                      IsEnabled="{Binding JournalEnabled}"
+                                                      VerticalAlignment="Center"/>
+
+                                            <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                                <TextBlock Text="{Binding DisplayName}"
+                                                           Foreground="{StaticResource Fg}"
+                                                           FontSize="12"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock FontSize="10.5" Margin="0,2,0,0"
+                                                           TextTrimming="CharacterEllipsis">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{StaticResource FgMuted}"/>
+                                                            <Setter Property="Text" Value="{Binding SizeText}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding JournalEnabled}" Value="False">
+                                                                    <Setter Property="Foreground" Value="#B45309"/>
+                                                                    <Setter Property="Text"
+                                                                            Value="{Binding JournalError}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+
+                                            <TextBlock Grid.Column="2" Text="{Binding CountText}"
+                                                       Foreground="{StaticResource FgMuted}" FontSize="10.5"
+                                                       VerticalAlignment="Center" Margin="6,0,2,0"
+                                                       FontFamily="Cascadia Mono, Consolas"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- 分隔 -->
+                        <Border Height="1" Background="{StaticResource Border}" Margin="14,14,14,14"/>
+
+                        <!-- 操作类型 -->
+                        <Grid Margin="14,0,14,6">
+                            <TextBlock Text="操作类型" Style="{StaticResource SectionLabel}" Margin="0"/>
+                            <TextBlock HorizontalAlignment="Right" Text="点击只看此类"
+                                       FontSize="10" Foreground="{StaticResource FgMuted}"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding Operations}" Margin="8,0,8,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:OperationFilterItem}">
+                                    <Border x:Name="OpRow" Padding="6,6" CornerRadius="5"
+                                            Background="Transparent" Margin="0,1" Cursor="Hand"
+                                            MouseLeftButtonUp="OperationRow_Click"
+                                            ToolTip="{Binding Description}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <CheckBox Grid.Column="0" Style="{StaticResource Check}"
+                                                      IsChecked="{Binding IsSelected}"
+                                                      VerticalAlignment="Center"/>
+
+                                            <Border Grid.Column="1" Width="3" Height="14" CornerRadius="2"
+                                                    Margin="8,0,8,0" VerticalAlignment="Center">
+                                                <Border.Background>
+                                                    <SolidColorBrush Color="{Binding Accent}"/>
+                                                </Border.Background>
+                                            </Border>
+
+                                            <TextBlock Grid.Column="2" Text="{Binding DisplayName}"
+                                                       Foreground="{StaticResource Fg}" FontSize="12"
+                                                       VerticalAlignment="Center"/>
+
+                                            <TextBlock Grid.Column="3" Text="{Binding CountText}"
+                                                       Foreground="{StaticResource FgMuted}" FontSize="10.5"
+                                                       VerticalAlignment="Center" Margin="6,0,2,0"
+                                                       FontFamily="Cascadia Mono, Consolas"/>
+                                        </Grid>
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <Trigger SourceName="OpRow" Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="OpRow" Property="Background" Value="#1B2431"/>
+                                        </Trigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Button Content="全选/清空类型" Style="{StaticResource FlatButton}"
+                                Command="{Binding ToggleAllOperationsCommand}"
+                                Margin="14,12,14,0" Padding="10,5" FontSize="11"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <Border Grid.Column="1" Width="1" Background="{StaticResource Border}"/>
+
+            <!-- ========== 中间: 记录表格 ========== -->
+            <Grid Grid.Column="2" Background="{StaticResource Bg1}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 结果统计条 -->
+                <Border Grid.Row="0" Background="{StaticResource Bg2}"
+                        BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1"
+                        Padding="14,8">
+                    <Grid>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding ResultSummary}"
+                                       Foreground="{StaticResource Fg}" FontSize="12"
+                                       FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <Border Style="{StaticResource Badge}" Margin="10,0,0,0">
+                                <TextBlock Text="{Binding ActiveFilterText}"
+                                           Foreground="{StaticResource FgDim}" FontSize="10.5"/>
+                            </Border>
+                            <!-- 排序状态: 点列头后让用户知道当前按什么排、方向如何 -->
+                            <Border Style="{StaticResource Badge}" Margin="6,0,0,0"
+                                    ToolTip="点击任意列标题可排序; 再次点击同一列切换升降序">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="排序 " FontSize="10.5"
+                                               Foreground="{StaticResource FgMuted}"/>
+                                    <TextBlock Text="{Binding SortText}" FontSize="10.5"
+                                               Foreground="{StaticResource Accent}"
+                                               FontFamily="Cascadia Mono, Consolas"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                        <TextBlock HorizontalAlignment="Right" Text="{Binding TimingText}"
+                                   Foreground="{StaticResource FgMuted}" FontSize="11"
+                                   VerticalAlignment="Center"
+                                   FontFamily="Cascadia Mono, Consolas"/>
+                    </Grid>
+                </Border>
+
+                <!-- 空状态提示 -->
+                <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            x:Name="EmptyState">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasData}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="⌕" FontSize="40" Foreground="#2A3441"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="还没有数据" Foreground="{StaticResource FgDim}"
+                               FontSize="14" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                    <TextBlock Foreground="{StaticResource FgMuted}" FontSize="11.5"
+                               HorizontalAlignment="Center" Margin="0,6,0,0"
+                               TextAlignment="Center" MaxWidth="380" TextWrapping="Wrap">
+                        <Run Text="点击右上角「扫描」读取已勾选分区的 USN 日志。"/>
+                        <LineBreak/>
+                        <Run Text="需要管理员权限 —— 建议以管理员身份运行本程序。"/>
+                    </TextBlock>
+                </StackPanel>
+
+                <DataGrid Grid.Row="1" x:Name="RecordsGrid"
+                          Style="{StaticResource FlatGrid}"
+                          ItemsSource="{Binding Rows}"
+                          SelectedItem="{Binding SelectedRow}"
+                          SelectionChanged="RecordsGrid_SelectionChanged"
+                          MouseDoubleClick="RecordsGrid_MouseDoubleClick"
+                          Sorting="RecordsGrid_Sorting"
+                          ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="时间" Width="152"
+                                                SortMemberPath="Time"
+                                                CellTemplate="{StaticResource TimeCellTemplate}"/>
+                        <DataGridTemplateColumn Header="分区" Width="58"
+                                                SortMemberPath="Volume"
+                                                CellTemplate="{StaticResource VolumeCellTemplate}"/>
+                        <DataGridTemplateColumn Header="操作" Width="216"
+                                                SortMemberPath="ReasonRaw"
+                                                CellTemplate="{StaticResource OperationCellTemplate}"/>
+                        <DataGridTemplateColumn Header="文件名" Width="280"
+                                                SortMemberPath="Name"
+                                                CellTemplate="{StaticResource NameCellTemplate}"/>
+                        <DataGridTemplateColumn Header="所在文件夹" Width="*"
+                                                SortMemberPath="Folder"
+                                                CellTemplate="{StaticResource PathCellTemplate}"/>
+                        <DataGridTextColumn Header="USN" Width="96"
+                                            Binding="{Binding Usn}"
+                                            SortMemberPath="Usn"
+                                            ElementStyle="{StaticResource MonoCellStyle}"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <!-- 扫描进度 -->
+                <Border Grid.Row="1" VerticalAlignment="Top" Background="#CC0B0E14"
+                        x:Name="ProgressPanel" Padding="14,10" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="{Binding ProgressText}"
+                                   Foreground="{StaticResource Fg}" FontSize="11.5"/>
+                        <ProgressBar Style="{StaticResource SlimProgress}" Margin="0,8,0,0"
+                                     Value="{Binding ProgressValue}"
+                                     IsIndeterminate="{Binding IsIndeterminate}"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Border Grid.Column="3" Width="1" Background="{StaticResource Border}"/>
+
+            <!-- ========== 右侧: 详情 ========== -->
+            <Border Grid.Column="4" Background="{StaticResource Bg1}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Background="{StaticResource Bg2}"
+                            BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1"
+                            Padding="14,8">
+                        <TextBlock Text="记录详情" Foreground="{StaticResource Fg}"
+                                   FontSize="12" FontWeight="SemiBold"/>
+                    </Border>
+
+                    <!-- 未选中提示 -->
+                    <TextBlock Grid.Row="1" Text="在左侧表格中选择一行查看详情"
+                               Foreground="{StaticResource FgMuted}" FontSize="11.5"
+                               HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasSelection}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  x:Name="DetailScroll">
+                        <ScrollViewer.Style>
+                            <Style TargetType="ScrollViewer">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasSelection}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ScrollViewer.Style>
+                        <StackPanel Margin="14" DataContext="{Binding SelectedRow}">
+
+                            <!-- 操作类型头部 -->
+                            <Border CornerRadius="6" Padding="12,10" Margin="0,0,0,14">
+                                <Border.Background>
+                                    <SolidColorBrush Color="#141A24"/>
+                                </Border.Background>
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="4" Height="16" CornerRadius="2"
+                                                Background="{Binding OperationBrush}" Margin="0,0,9,0"/>
+                                        <TextBlock Text="{Binding ReasonText}" FontSize="13"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource Fg}"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding ReasonHex}" FontSize="10.5"
+                                               Foreground="{StaticResource FgMuted}"
+                                               FontFamily="Cascadia Mono, Consolas"
+                                               Margin="13,5,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 文件名 (可能很长, 自动换行) -->
+                            <TextBlock Text="文件名" Style="{StaticResource SectionLabel}"/>
+                            <TextBlock Text="{Binding Name}" Style="{StaticResource DetailValue}"
+                                       Margin="0,0,0,12"/>
+
+                            <TextBlock Text="完整路径" Style="{StaticResource SectionLabel}"/>
+                            <TextBlock Text="{Binding FullPath}" Style="{StaticResource DetailPath}"
+                                       Margin="0,0,0,12"/>
+
+                            <TextBlock Text="时间" Style="{StaticResource SectionLabel}"/>
+                            <TextBlock Text="{Binding TimeText}" Style="{StaticResource DetailPath}"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding UtcTime, StringFormat='UTC {0:yyyy-MM-dd HH:mm:ss}'}"
+                                       Style="{StaticResource DetailPath}"
+                                       Foreground="{StaticResource FgMuted}" FontSize="10"
+                                       Margin="0,0,0,12"/>
+                            <TextBlock Text="{Binding Usn, StringFormat='USN 0x{0:X}'}"
+                                       Style="{StaticResource DetailPath}"
+                                       Foreground="{StaticResource FgMuted}" FontSize="10"
+                                       Margin="0,0,0,12"/>
+
+                            <TextBlock Text="标识" Style="{StaticResource SectionLabel}"/>
+                            <Grid Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="分区"
+                                           Style="{StaticResource Label}" Margin="0,0,12,6"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Volume}"
+                                           Style="{StaticResource Mono}" FontSize="11.5" Margin="0,0,0,6"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="MFT 记录号"
+                                           Style="{StaticResource Label}" Margin="0,0,12,6"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding FileIdHex}"
+                                           Style="{StaticResource Mono}" FontSize="11.5" Margin="0,0,0,6"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="父目录 MFT"
+                                           Style="{StaticResource Label}" Margin="0,0,12,6"/>
+                                <TextBlock Grid.Row="2" Grid.Column="1"
+                                           Text="{Binding ParentId, StringFormat=0x{0:X}}"
+                                           Style="{StaticResource Mono}" FontSize="11.5" Margin="0,0,0,6"/>
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="USN"
+                                           Style="{StaticResource Label}" Margin="0,0,12,0"/>
+                                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Usn}"
+                                           Style="{StaticResource Mono}" FontSize="11.5"/>
+                            </Grid>
+
+                            <!-- 路径不完整警告 -->
+                            <Border CornerRadius="5" Background="#2A1F0F" Padding="10,8"
+                                    Visibility="{Binding PathIncomplete, Converter={StaticResource BoolToVis}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="⚠" Foreground="#F59E0B" FontSize="13"
+                                               Margin="0,0,8,0" VerticalAlignment="Top"/>
+                                    <TextBlock Foreground="#D9A441" FontSize="11" TextWrapping="Wrap"
+                                               MaxWidth="260"
+                                               Text="父目录已被删除, 路径无法完整还原。上方路径中的 &lt;已删除&gt; 表示断链位置。"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Button Content="复制完整路径" Style="{StaticResource FlatButton}"
+                                    Click="CopyPath_Click" Margin="0,14,0,0"
+                                    Padding="10,6" FontSize="11" HorizontalAlignment="Left"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- ==================== 状态栏 ==================== -->
+        <Border Grid.Row="3" Background="{StaticResource Bg2}"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0"
+                Padding="14,7">
+            <Grid>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource FgDim}"
+                               FontSize="11.5" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding ProgressText}" Foreground="{StaticResource Accent}"
+                               FontSize="11.5" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                </StackPanel>
+                <TextBlock HorizontalAlignment="Right" Foreground="{StaticResource FgMuted}"
+                           FontSize="11" VerticalAlignment="Center"
+                           Text="F5 扫描 · Ctrl+F 搜索 · Ctrl+E 导出 · Esc 取消 · 双击行复制路径"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
